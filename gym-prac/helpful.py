@@ -1,4 +1,5 @@
 import gymnasium as gym
+from gymnasium.spaces import Box
 
 import torch
 import torch.nn as nn
@@ -15,44 +16,88 @@ import glob
 # ffmpeg -f concat -safe 0 -i videos.txt -c copy output.mp4
 
 
-def query_env(name, continous=False):
+def query_env(name):
     """
-    Query environment details and return the dimensions of the observation and action spaces.
+    Query environment details and return the dimensions of the observation and action spaces,
+    including state space, action space, input shape, output shape, and the range of control actions.
     """
     env = gym.make(name)
     spec = gym.spec(name)
-    print(f"Action Space: {env.action_space}")
-    print(f"Observation Space: {env.observation_space}")
+    
+    # Extracting details
+    action_space = env.action_space
+    observation_space = env.observation_space
+    action_space_details = {
+        "shape": action_space.shape,
+        "dtype": action_space.dtype,
+        "high": action_space.high if hasattr(action_space, 'high') else None,
+        "low": action_space.low if hasattr(action_space, 'low') else None
+    }
+    observation_space_details = {
+        "shape": observation_space.shape,
+        "dtype": observation_space.dtype,
+        "high": observation_space.high if hasattr(observation_space, 'high') else None,
+        "low": observation_space.low if hasattr(observation_space, 'low') else None
+    }
+    
+    # Determine if spaces are continuous or discrete
+    action_space_continuous = isinstance(action_space, Box)
+    observation_space_continuous = isinstance(observation_space, Box)
+    
+    # Displaying details
+    print(f"Action Space: {action_space}")
+    print(f"Observation Space: {observation_space}")
     print(f"Max Episode Steps: {spec.max_episode_steps}")
     print(f"Nondeterministic: {spec.nondeterministic}")
     print(f"Reward Range: {env.reward_range}")
     print(f"Reward Threshold: {spec.reward_threshold}")
+    print(f"Action Space Details: {action_space_details}")
+    print(f"Observation Space Details: {observation_space_details}")
+    print(f"Action Space Continuous: {action_space_continuous}")
+    print(f"Observation Space Continuous: {observation_space_continuous}")
+    
+    if action_space_continuous:
+        output_shape = action_space.shape[0]
+    else:
+        output_shape = action_space.n
 
-    if continous:
-        return env.observation_space.shape[0], env.action_space.shape[0]
-    return env.observation_space.shape[0], env.action_space.n
+    if observation_space_continuous:
+        input_shape = observation_space.shape[0]
+    else:
+        input_shape = observation_space.n
+    
+    return {
+        "input_shape": input_shape,
+        "output_shape": output_shape,
+        "action_space_details": action_space_details,
+        "observation_space_details": observation_space_details,
+        "action_space_continuous": action_space_continuous,
+        "observation_space_continuous": observation_space_continuous
+    }
 
 class PolicyNetwork(nn.Module):
     """
     Neural network for policy approximation in REINFORCE algorithm.
     """
-    def __init__(self, obs_space_dim, action_space_dim, continous=False):
+    def __init__(self, env_info):
         super(PolicyNetwork, self).__init__()
-        self.fc1 = nn.Linear(obs_space_dim, 32)
+        obs_dim, act_dim, continous_action, continous_state = env_info["input_shape"], env_info["output_shape"], env_info["action_space_continuous"], env_info["observation_space_continuous"]
+
+        self.fc1 = nn.Linear(obs_dim, 32)
         self.fc2 = nn.Linear(32, 64)
         self.fc3 = nn.Linear(64, 128)
         self.fc4 = nn.Linear(128, 512)
-        self.fc5 = nn.Linear(512, 512)
+        # self.fc5 = nn.Linear(512, 512)
 
         self.relu = nn.ReLU()
         self.tanh = nn.Tanh()
-        self.continous = continous
+        self.continous_action = continous_action
 
-        if continous:
-            self.mu = nn.Linear(512, action_space_dim)
-            self.log_std = nn.Linear(512, action_space_dim)
+        if continous_action:
+            self.mu = nn.Linear(512, act_dim)
+            self.log_std = nn.Linear(512, act_dim)
         else:
-            self.fc = nn.Linear(512, action_space_dim)
+            self.fc = nn.Linear(512, act_dim)
             self.softmax = nn.Softmax(dim=-1)
 
     def forward(self, x):
@@ -60,9 +105,9 @@ class PolicyNetwork(nn.Module):
         x = self.relu(self.fc2(x))
         x = self.relu(self.fc3(x))
         x = self.relu(self.fc4(x))
-        x = self.relu(self.fc5(x))
+        # x = self.relu(self.fc5(x))
 
-        if self.continous:
+        if self.continous_action:
             mu = self.mu(x)
             log_std = self.log_std(x)
             return mu, log_std
@@ -100,18 +145,18 @@ class REINFORCE:
     """
     REINFORCE algorithm implementation.
     """
-    def __init__(self, obs_space_dim, action_space_dim, reward_norm=False, continous=False):
+    def __init__(self, env_info, reward_norm = False):
         self.logprobs = []
         self.rewards = []
         self.losses = []
         self.gamma = 0.99
         self.lr = 1e-4
         self.eps = 1e-6
-        self.continous = continous
+        self.continous = env_info["action_space_continuous"]
         self.reward_norm = reward_norm
 
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-        self.policy = PolicyNetwork(obs_space_dim, action_space_dim, continous=continous).to(self.device)
+        self.policy = PolicyNetwork(env_info).to(self.device)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=self.lr)
 
     def sample_action(self, state):
@@ -247,6 +292,7 @@ class ActorCritic:
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+
         self.logprobs = []
         self.rewards = []
 
