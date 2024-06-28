@@ -1,25 +1,28 @@
 from helpful import *
 
-class REINFORCE:
+class ActorCritic:
     """
-    REINFORCE algorithm implementation.
+    Actor-Critic algorithm implementation.
     """
-    def __init__(self, env_info, reward_norm = False):
+    def __init__(self, obs_space_dim, action_space_dim, reward_norm=False, continous=False):
         self.logprobs = []
         self.rewards = []
         self.losses = []
         self.gamma = 0.99
         self.lr = 1e-4
         self.eps = 1e-6
-        self.continous = env_info["action_space_continuous"]
+        self.continous = continous
         self.reward_norm = reward_norm
 
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-        self.policy = PolicyNetwork(env_info).to(self.device)
+        self.policy = PolicyNetwork(obs_space_dim, action_space_dim, continous=continous).to(self.device)
+        self.value = ValueNetwork(obs_space_dim).to(self.device)
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=self.lr)
 
     def sample_action(self, state):
         state = torch.tensor(state, dtype=torch.float32).to(self.device)
+        R = self.value(state).detach().cpu().item()
+        self.rewards.append(R)
 
         if self.continous:
             mu, log_std = self.policy(state)
@@ -55,6 +58,7 @@ class REINFORCE:
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+
         self.logprobs = []
         self.rewards = []
 
@@ -92,3 +96,4 @@ class REINFORCE:
 
     def save_nets(self,pth_name):
         torch.save(self.policy.state_dict(), f"{pth_name}_policy_net.pth")
+        torch.save(self.value.state_dict(), f"{pth_name}_value_net.pth")
