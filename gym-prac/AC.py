@@ -1,99 +1,98 @@
 from helpful import *
+from gymnasium.wrappers import RecordVideo
 
 class ActorCritic:
     """
     Actor-Critic algorithm implementation.
     """
-    def __init__(self, obs_space_dim, action_space_dim, reward_norm=False, continous=False):
-        self.logprobs = []
+    def __init__(self, env_name):
+        self.env_name = env_name
         self.rewards = []
-        self.losses = []
         self.gamma = 0.99
         self.lr = 1e-4
         self.eps = 1e-6
-        self.continous = continous
-        self.reward_norm = reward_norm
+        self.episodes = 2500
+        env_info = query_env(self.env_name)
+        self.continous = env_info['action_space_continuous']
 
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-        self.policy = PolicyNetwork(obs_space_dim, action_space_dim, continous=continous).to(self.device)
-        self.value = ValueNetwork(obs_space_dim).to(self.device)
-        self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=self.lr)
+
+        self.actor = PolicyNetwork(env_info).to(self.device)
+        self.critic = ValueNetwork(env_info).to(self.device)
+
+        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=self.lr)
+        self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=self.lr)
+
 
     def sample_action(self, state):
         state = torch.tensor(state, dtype=torch.float32).to(self.device)
-        R = self.value(state).detach().cpu().item()
-        self.rewards.append(R)
-
         if self.continous:
-            mu, log_std = self.policy(state)
+            mu, log_std = self.actor(state)
             std = log_std.exp()
             dist = torch.distributions.Normal(mu, std)
-            action = dist.sample()
-            log_prob = dist.log_prob(action).sum()
-            self.logprobs.append(log_prob)
-            return torch.tanh(action).cpu().detach().numpy()
+            sample = dist.sample()
+            log_prob = dist.log_prob(sample).sum()
+            action = torch.tanh(sample).cpu().detach().numpy()
+            return action, log_prob
 
-        action_probs = self.policy(state)
+        action_probs = self.actor(state)
         dist = torch.distributions.Categorical(action_probs)
-        action = dist.sample()
-        self.logprobs.append(dist.log_prob(action))
-        return action.item()
+        sample = dist.sample()
+        log_prob = dist.log_prob(sample)
+        action =  sample.item()
+        return action, log_prob
 
-    def update(self):
-        running_gs = 0
-        Gs = []
-        for R in self.rewards[::-1]:
-            running_gs = running_gs * self.gamma + R
-            Gs.insert(0, running_gs)
 
-        Gs = torch.tensor(Gs, dtype=torch.float32).to(self.device)
-        if self.reward_norm:
-            Gs = (Gs - Gs.mean()) / (Gs.std() + self.eps)
+    def Train(self):
+        """
+        TD(0) algorithm implementation.
+        """
+        env = gym.make(self.env_name, render_mode = 'rgb_array')
+        env.metadata['render_fps'] = 30
+        value_criterion = torch.nn.MSELoss()
 
-        loss = 0
-        for log_prob, G in zip(self.logprobs, Gs):
-            loss += -log_prob * G
+        for episode in range(self.episodes):
+            state, _ = env.reset()
+            done = False
+            while not done:
+                state = torch.tensor(state, dtype=torch.float32).to(self.device)
+                action, log_prob = self.sample_action(state)
 
-        self.losses.append(loss.item())
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
+                if self.continous:
+                    next_state, reward, done, truncated, info = env.step(action)
+                else:
+                    next_state, reward, done, truncated, info = env.step(int(action))
+                next_state = torch.tensor(next_state, dtype=torch.float32).to(self.device)
 
-        self.logprobs = []
+                value = self.critic(state)
+                target = reward + (1 - done) * self.gamma * self.critic(next_state)
+                vloss = value_criterion(value, target.detach())
+
+                advantage = (target - value).detach()
+                aloss = -log_prob * advantage
+
+                self.critic_optimizer.zero_grad()
+                vloss.backward()
+                self.critic_optimizer.step()
+
+                self.actor_optimizer.zero_grad()
+                aloss.backward()
+                self.actor_optimizer.step()
+
+                state = next_state
+                done = done or truncated
+                if (episode + 1) % 100 == 0:
+                    self.rewards.append(reward)
+
+            if (episode + 1) % 100 == 0:
+                print(f"Episode {episode + 1} : " , "Reward : ", int(np.sum(np.array(self.rewards))))
+                self.rewards = []
+
         self.rewards = []
 
-    def combined_episode_videos(self,to_save_at):
-        video_names = np.asarray(glob(self.params.export_video+'/*.mp4'))
-        if video_names.shape[0]==0: return
-        cap = cv2.VideoCapture(video_names[0])
-        frame_width = int(cap.get(3))
-        frame_height = int(cap.get(4))
-        fps = int(cap.get(cv2.CAP_PROP_FPS))
-        out = cv2.VideoWriter(to_save_at+'/combined_{}.mp4'.format(self.params.env_name),cv2.VideoWriter_fourcc(*'MP4V'), fps, (frame_width,frame_height))
-        for idx,video in enumerate(video_names):
-            episode_idx = idx*self.params.log_episode_interval
-            cap = cv2.VideoCapture(video)
-            counter = 0
-            while(True):
-                font_size = self.params.font_size*(frame_width/600)
-                if font_size<0.5:
-                    font_size = 0.5
-                margin = int(self.params.font_margin/600*frame_width)
-                # Capture frames in the video
-                ret, frame = cap.read()
-
-                if not ret:
-                    break
-                font = cv2.FONT_HERSHEY_SIMPLEX
-
-                cv2.putText(frame,'Episode: {}'.format(episode_idx+1),(margin, margin),font, font_size,self.params.font_color,2, cv2.LINE_4)
-                cv2.putText(frame,'Reward: {:.2f}'.format(self.episode_rewards[episode_idx]), (margin, frame_height-margin), font, font_size,self.params.font_color, 2,cv2.LINE_4)
-                out.write(frame)
-                counter += 1
-
-            cap.release()
-        out.release()
-
     def save_nets(self,pth_name):
-        torch.save(self.policy.state_dict(), f"{pth_name}_policy_net.pth")
-        torch.save(self.value.state_dict(), f"{pth_name}_value_net.pth")
+        torch.save(self.actor.state_dict(), f"{pth_name}_policy_net.pth")
+        torch.save(self.critic.state_dict(), f"{pth_name}_value_net.pth")
+
+agent = ActorCritic("CartPole-v1")
+agent.Train()

@@ -3,6 +3,7 @@ from helpful import *
 class REINFORCE:
     """
     REINFORCE algorithm implementation.
+    First-visit MC for estimating the state-value function Given policy.
     """
     def __init__(self, env_info, reward_norm = False):
         self.logprobs = []
@@ -12,7 +13,6 @@ class REINFORCE:
         self.lr = 1e-4
         self.eps = 1e-6
         self.continous = env_info["action_space_continuous"]
-        self.reward_norm = reward_norm
 
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         self.policy = PolicyNetwork(env_info).to(self.device)
@@ -38,34 +38,36 @@ class REINFORCE:
 
     def update(self):
         running_gs = 0
+        # Policy Evaluation
         Gs = []
         for R in self.rewards[::-1]:
             running_gs = running_gs * self.gamma + R
             Gs.insert(0, running_gs)
 
         Gs = torch.tensor(Gs, dtype=torch.float32).to(self.device)
-        if self.reward_norm:
-            Gs = (Gs - Gs.mean()) / (Gs.std() + self.eps)
 
         loss = 0
         for log_prob, G in zip(self.logprobs, Gs):
             loss += -log_prob * G
 
         self.losses.append(loss.item())
+        # Policy Improvement
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+
+        # Reset the rewards and the likilihood
         self.logprobs = []
         self.rewards = []
 
-    def combined_episode_videos(self,to_save_at):
-        video_names = np.asarray(glob(self.params.export_video+'/*.mp4'))
+    def combined_episode_videos(self):
+        video_names = np.asarray(glob('gym-prac/videos'+'/*.mp4'))
         if video_names.shape[0]==0: return
         cap = cv2.VideoCapture(video_names[0])
         frame_width = int(cap.get(3))
         frame_height = int(cap.get(4))
         fps = int(cap.get(cv2.CAP_PROP_FPS))
-        out = cv2.VideoWriter(to_save_at+'/combined_{}.mp4'.format(self.params.env_name),cv2.VideoWriter_fourcc(*'MP4V'), fps, (frame_width,frame_height))
+        out = cv2.VideoWriter('gym-prac/combined_{}.mp4'.format(self.params.env_name),cv2.VideoWriter_fourcc(*'MP4V'), fps, (frame_width,frame_height))
         for idx,video in enumerate(video_names):
             episode_idx = idx*self.params.log_episode_interval
             cap = cv2.VideoCapture(video)

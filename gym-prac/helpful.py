@@ -1,5 +1,7 @@
 import gymnasium as gym
 from gymnasium.spaces import Box
+from gymnasium.envs import mujoco
+
 import torch
 import torch.nn as nn
 import numpy as np
@@ -112,13 +114,14 @@ class PolicyNetwork(nn.Module):
         x = self.softmax(self.fc(x))
         return x
 
+
 class ValueNetwork(nn.Module):
     """
     Neural network for value approximation in Actor-Critic algorithm.
     """
-    def __init__(self, obs_space_dim):
+    def __init__(self, env_info):
         super(ValueNetwork, self).__init__()
-        self.fc1 = nn.Linear(obs_space_dim, 32)
+        self.fc1 = nn.Linear(env_info["input_shape"], 32)
         self.fc2 = nn.Linear(32, 64)
         self.fc3 = nn.Linear(64, 128)
         self.fc4 = nn.Linear(128, 512)

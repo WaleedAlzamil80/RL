@@ -13,11 +13,11 @@ env = gym.make(env_name, render_mode = 'rgb_array')
 env.metadata['render_fps'] = 30
 
 # Setup the wrapper to record the video
-env = RecordVideo(env, video_folder='./videos', episode_trigger=lambda episode_id: (episode_id % 50) == 0)
+env = RecordVideo(env, video_folder='./gym-prac/videos', episode_trigger=lambda episode_id: (episode_id % 50) == 0)
 
 agent = REINFORCE(env_info)
 
-episodeNumper = 3000
+episodeNumper = 2500
 for episode_index in range(episodeNumper):
     observation, _ = env.reset()
     done = False
@@ -36,3 +36,4 @@ for episode_index in range(episodeNumper):
     agent.update()
 
 env.close
+agent.combined_episode_videos()
