@@ -15,8 +15,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 import numpy as np
 import gymnasium as gym
 
-from gym import Env, spaces
-from gym.utils import seeding
+from gymnasium import Env, spaces
+from gymnasium.utils import seeding
 
 def categorical_sample(prob_n, np_random):
     """

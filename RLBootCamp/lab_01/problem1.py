@@ -1,3 +1,4 @@
+from bee import OptimalPath
 from misc import FrozenLakeEnv, make_grader
 env = FrozenLakeEnv()
 # print(env.__doc__)
@@ -26,6 +27,7 @@ class MDP(object):
         self.nS = nS # number of states 16
         self.nA = nA # number of actions 4
         self.desc = desc # 2D array specifying what each grid cell means (used for plotting)
+
 mdp = MDP( {s : {a : [tup[:3] for tup in tups] for (a, tups) in a2d.items()} for (s, a2d) in env.P.items()}, env.nS, env.nA, env.desc)
 
 
@@ -45,84 +47,31 @@ mdp = MDP( {s : {a : [tup[:3] for tup in tups] for (a, tups) in a2d.items()} for
         # print(transition)
         # for probability, nextstate, reward in transition:
             # print(probability)
-def value_iteration(mdp, gamma, nIt, grade_print=print):
-    """
-    Inputs:
-        mdp: MDP
-        gamma: discount factor
-        nIt: number of iterations, corresponding to n above
-    Outputs:
-        (value_functions, policies)
-        
-    len(value_functions) == nIt+1 and len(policies) == nIt
-    """
-    grade_print("Iteration | max|V-Vprev| | # chg actions | V[0]")
-    grade_print("----------+--------------+---------------+---------")
-    Vs = [np.zeros(mdp.nS)] # list of value functions contains the initial value function V^{(0)}, which is zero
-    pis = []
 
-    for it in range(nIt):
-        oldpi = pis[-1] if len(pis) > 0 else None # \pi^{(it)} = Greedy[V^{(it-1)}]. Just used for printout
-        Vprev = Vs[-1] # V^{(it)}
-        
-        # Your code should fill in meaningful values for the following two variables
-        # pi: greedy policy for Vprev (not V), 
-        #     corresponding to the math above: \pi^{(it)} = Greedy[V^{(it)}]
-        #     ** it needs to be numpy array of ints **
-        # V: bellman backup on Vprev
-        #     corresponding to the math above: V^{(it+1)} = T[V^{(it)}]
-        #     ** numpy array of floats **
-
-        V = np.copy(Vprev)   #Vprev # REPLACE THIS LINE WITH YOUR CODE
-        pi = np.zeros(mdp.nS) #oldpi # REPLACE THIS LINE WITH YOUR CODE
-        for state, action in mdp.P.items():
-            action_values = []
-            for act, transition in action.items():
-                act_val = 0
-                for probability, nextstate, reward in transition: # probability, nextstate, reward
-                    act_val += probability * (reward + gamma * Vprev[nextstate])
-                action_values.append(act_val)
-            V[state] = np.max(action_values)
-            pi[state] = np.argmax(action_values)
-
-
-        max_diff = np.abs(V - Vprev).max()
-        nChgActions="N/A" if oldpi is None else (pi != oldpi).sum()
-        grade_print("%4i      | %6.5f      | %4s          | %5.3f"%(it, max_diff, nChgActions, V[0]))
-        Vs.append(V)
-        pis.append(pi)
-    return Vs, pis
-
-GAMMA = 0.95 # we'll be using this same value in subsequent problems
-
-# The following is the output of a correct implementation; when
-#   this code block is run, your implementation's print output will be
-#   compared with expected output.
-#   (incorrect line in red background with correct line printed side by side to help you debug)
 expected_output = """Iteration | max|V-Vprev| | # chg actions | V[0]
 ----------+--------------+---------------+---------
    0      | 0.80000      |  N/A          | 0.000
-   1      | 0.60800      |    2          | 0.000
-   2      | 0.51984      |    2          | 0.000
-   3      | 0.39508      |    2          | 0.000
-   4      | 0.30026      |    2          | 0.000
-   5      | 0.25355      |    1          | 0.254
-   6      | 0.10478      |    0          | 0.345
-   7      | 0.09657      |    0          | 0.442
-   8      | 0.03656      |    0          | 0.478
-   9      | 0.02772      |    0          | 0.506
-  10      | 0.01111      |    0          | 0.517
-  11      | 0.00735      |    0          | 0.524
-  12      | 0.00310      |    0          | 0.527
-  13      | 0.00190      |    0          | 0.529
-  14      | 0.00083      |    0          | 0.530
-  15      | 0.00049      |    0          | 0.531
-  16      | 0.00022      |    0          | 0.531
-  17      | 0.00013      |    0          | 0.531
-  18      | 0.00006      |    0          | 0.531
-  19      | 0.00003      |    0          | 0.531"""
+   1      | 0.64000      |    2          | 0.000
+   2      | 0.57600      |    2          | 0.000
+   3      | 0.46080      |    2          | 0.000
+   4      | 0.36864      |    2          | 0.000
+   5      | 0.32768      |    1          | 0.328
+   6      | 0.14254      |    0          | 0.452
+   7      | 0.13828      |    1          | 0.590
+   8      | 0.05512      |    0          | 0.646
+   9      | 0.04397      |    1          | 0.690
+  10      | 0.02485      |    1          | 0.708
+  11      | 0.01802      |    2          | 0.724
+  12      | 0.01739      |    0          | 0.733
+  13      | 0.01539      |    1          | 0.742
+  14      | 0.01392      |    0          | 0.750
+  15      | 0.01237      |    1          | 0.758
+  16      | 0.01111      |    0          | 0.765
+  17      | 0.00992      |    0          | 0.772
+  18      | 0.00891      |    0          | 0.779
+  19      | 0.00798      |    0          | 0.785"""
 
-Vs_VI, pis_VI = value_iteration(mdp, gamma=GAMMA, nIt=20, grade_print=make_grader(expected_output))
+Vs_VI, pis_VI = OptimalPath(mdp, grade_print=make_grader(expected_output))
 
 for (V, pi) in zip(Vs_VI[:10], pis_VI[:10]):
     plt.figure(figsize=(3,3))
